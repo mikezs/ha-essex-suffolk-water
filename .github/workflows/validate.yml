@@ -23,3 +23,8 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # `brands` requires the icon to be merged into home-assistant/brands.
+          ignore: brands
+        env:
+          # Lets the action read manifest.json / hacs.json via the GitHub API.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
