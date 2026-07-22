@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Essex & Suffolk Water",
+        "description": "Sign in with the email and password for your Essex & Suffolk Water online account.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Essex & Suffolk Water",
+        "description": "The stored credentials for {email} are no longer working. Enter the current password.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email or password.",
+      "cannot_connect": "Could not reach Essex & Suffolk Water. Try again shortly.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "daily_consumption": { "name": "Daily consumption" },
+      "daily_cost": { "name": "Daily cost" },
+      "last_reading": { "name": "Last reading" },
+      "meter_last_read": { "name": "Meter reading" }
+    }
+  }
+}

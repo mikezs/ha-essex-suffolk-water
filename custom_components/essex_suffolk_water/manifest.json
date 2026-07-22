@@ -1,0 +1,12 @@
+{
+  "domain": "essex_suffolk_water",
+  "name": "Essex & Suffolk Water",
+  "codeowners": ["@mikezs"],
+  "config_flow": true,
+  "documentation": "https://github.com/mikezs/ha-essex-suffolk-water",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/mikezs/ha-essex-suffolk-water/issues",
+  "requirements": ["eswater==0.1.0"],
+  "version": "0.1.0"
+}
