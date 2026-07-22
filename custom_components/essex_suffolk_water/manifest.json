@@ -1,6 +1,7 @@
 {
   "domain": "essex_suffolk_water",
   "name": "Essex & Suffolk Water",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@mikezs"],
   "config_flow": true,
   "documentation": "https://github.com/mikezs/ha-essex-suffolk-water",
