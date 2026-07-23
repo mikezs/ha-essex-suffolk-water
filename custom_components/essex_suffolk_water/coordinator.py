@@ -1,18 +1,21 @@
 """Data update coordinator for Essex & Suffolk Water.
 
-Two responsibilities per poll:
+Every poll fetches a small trailing window of *hourly* data (the ESW/NWG API
+only serves per-day history through the hourly endpoint, one call per day). That
+window refreshes the live sensors and appends new long-term statistics so hourly
+water usage and cost show up in the Energy dashboard.
 
-1. Fetch each meter's most recent daily reading for the live sensors.
-2. Backfill Home Assistant long-term statistics so hourly water usage (and
-   cost) shows up in the Energy dashboard. Because the ESW/NWG API only serves
-   per-day history through the *hourly* endpoint (one call per day), history is
-   walked day-by-day, throttled, and resumed from whatever is already stored.
+The full historical backfill (from the meter's install date) is potentially
+hundreds of daily calls, so it runs **once in a background task** rather than
+blocking config-entry setup. Regular polls only append statistics once that
+initial backfill has finished, which keeps the cumulative sums ordered.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -50,6 +53,7 @@ from .const import (
     CONF_EMAIL,
     CONF_PASSWORD,
     DOMAIN,
+    RECENT_DAYS,
     SCAN_INTERVAL,
     TIMEZONE,
 )
@@ -64,10 +68,12 @@ COST_UNIT = "GBP"
 
 @dataclass(slots=True)
 class MeterData:
-    """Snapshot of a single meter for the live sensor platform."""
+    """Live snapshot of a meter, derived from the most recent day of hourly data."""
 
     meter: Meter
-    latest: UsageReading | None
+    daily_consumption: float | None
+    daily_cost: float | None
+    last_reading: datetime | None
 
 
 class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
@@ -90,23 +96,33 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             entry.data[CONF_PASSWORD],
         )
         self._authenticated = False
+        # Serialises statistics writes so cumulative sums stay consistent
+        # between the background backfill and regular incremental appends.
+        self._stats_lock = asyncio.Lock()
+        self._backfill_scheduled = False
+        # Regular polls only append statistics once the one-time deep backfill
+        # has finished, so the oldest-to-newest sum ordering is preserved.
+        self._history_ready = False
 
     async def _async_update_data(self) -> dict[str, MeterData]:
-        """Refresh live readings and backfill statistics for every meter."""
+        """Refresh live readings (and, once backfilled, append recent statistics)."""
         try:
             if not self._authenticated:
                 await self.client.authenticate()
                 self._authenticated = True
             accounts = await self.client.get_accounts()
+            meters = [meter for account in accounts for meter in account.meters]
+
+            end_day = self._today() - timedelta(days=1)
+            recent_start = end_day - timedelta(days=RECENT_DAYS)
 
             data: dict[str, MeterData] = {}
-            for account in accounts:
-                for meter in account.meters:
-                    await self._insert_statistics(meter)
-                    latest = await self.client.get_latest_reading(
-                        meter.account_id, meter.serial
-                    )
-                    data[meter.serial] = MeterData(meter=meter, latest=latest)
+            for meter in meters:
+                readings = await self._fetch_hourly(meter, recent_start, end_day)
+                data[meter.serial] = self._summarise(meter, readings)
+                if self._history_ready:
+                    async with self._stats_lock:
+                        await self._insert_statistics(meter, readings)
         except (InvalidAuth, NotAuthenticated) as err:
             # Force a fresh login next cycle and hand off to the reauth flow.
             self._authenticated = False
@@ -115,25 +131,80 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             # ServiceUnavailable, ApiError (incl. malformed responses), etc.
             raise UpdateFailed(str(err)) from err
 
+        if not self._backfill_scheduled:
+            self._backfill_scheduled = True
+            self.config_entry.async_create_background_task(
+                self.hass,
+                self._async_backfill_history(meters),
+                name=f"{DOMAIN}_history_backfill",
+            )
+
         return data
+
+    # -- live sensor snapshot -------------------------------------------------
+
+    def _summarise(self, meter: Meter, readings: list[UsageReading]) -> MeterData:
+        """Aggregate the most recent day of hourly readings for the sensors."""
+        if not readings:
+            return MeterData(meter, None, None, None)
+
+        litres: dict[date, float] = defaultdict(float)
+        cost: dict[date, float] = defaultdict(float)
+        has_cost: set[date] = set()
+        latest: datetime | None = None
+        for reading in readings:
+            ts = reading.timestamp.replace(tzinfo=TIMEZONE)
+            day = (ts - timedelta(hours=1)).date()  # hour-start day
+            litres[day] += reading.consumption_litres
+            if reading.cost is not None:
+                cost[day] += reading.cost
+                has_cost.add(day)
+            if latest is None or ts > latest:
+                latest = ts
+
+        last_day = max(litres)
+        return MeterData(
+            meter=meter,
+            daily_consumption=litres[last_day],
+            daily_cost=cost[last_day] if last_day in has_cost else None,
+            last_reading=latest,
+        )
 
     # -- statistics -----------------------------------------------------------
 
-    async def _insert_statistics(self, meter: Meter) -> None:
-        """Backfill/append hourly usage and cost statistics for one meter."""
-        usage_id = f"{DOMAIN}:{meter.account_id}_{meter.serial}_usage".lower()
-        cost_id = f"{DOMAIN}:{meter.account_id}_{meter.serial}_cost".lower()
+    async def _async_backfill_history(self, meters: list[Meter]) -> None:
+        """One-time deep backfill of hourly statistics from each meter's start."""
+        try:
+            end_day = self._today() - timedelta(days=1)
+            for meter in meters:
+                usage_id = self._statistic_id(meter, "usage")
+                _, usage_last_ts = await self._resume_point(usage_id)
+                start_day = self._start_day(usage_last_ts, meter, end_day)
+                readings = await self._fetch_hourly(meter, start_day, end_day)
+                async with self._stats_lock:
+                    await self._insert_statistics(meter, readings)
+        except ESWaterError as err:
+            _LOGGER.warning(
+                "Historical backfill did not complete (%s); recent statistics "
+                "will still be collected. Reload the integration to retry.",
+                err,
+            )
+        finally:
+            # Let regular polls append recent statistics from here on, even if
+            # the deep backfill was partial — resume logic picks up the rest.
+            self._history_ready = True
+
+    async def _insert_statistics(
+        self, meter: Meter, readings: list[UsageReading]
+    ) -> None:
+        """Append usage and cost statistics for the given readings (resume-aware)."""
+        if not readings:
+            return
+        usage_id = self._statistic_id(meter, "usage")
+        cost_id = self._statistic_id(meter, "cost")
 
         usage_sum, usage_last_ts = await self._resume_point(usage_id)
         cost_sum, cost_last_ts = await self._resume_point(cost_id)
-
-        # The fetch window is driven by the usage stream (always present for an
-        # active meter). Cost piggybacks on the same readings, which avoids
-        # re-walking full history forever when a meter never reports cost.
-        end_day = dt_util.now(TIMEZONE).date() - timedelta(days=1)
-        start_day = self._start_day(usage_last_ts, meter, end_day)
-
-        readings = await self._fetch_hourly(meter, start_day, end_day)
 
         usage_stats: list[StatisticData] = []
         cost_stats: list[StatisticData] = []
@@ -217,6 +288,14 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             day += timedelta(days=1)
         readings.sort(key=lambda r: r.timestamp)
         return readings
+
+    def _today(self) -> date:
+        """Current date in the supplier's (UK) time zone."""
+        return dt_util.now(TIMEZONE).date()
+
+    @staticmethod
+    def _statistic_id(meter: Meter, kind: str) -> str:
+        return f"{DOMAIN}:{meter.account_id}_{meter.serial}_{kind}".lower()
 
     def _metadata(self, meter: Meter, statistic_id: str, kind: str) -> StatisticMetaData:
         """Build the external-statistics metadata for a usage/cost stream."""

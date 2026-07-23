@@ -1,7 +1,10 @@
 """Sensor platform for Essex & Suffolk Water.
 
-These are glanceable "current value" sensors. The Energy-dashboard history is
-provided separately by the coordinator via long-term statistics.
+These are glanceable "current value" sensors derived from the most recent day of
+hourly data. The Energy-dashboard history comes separately from the coordinator's
+long-term statistics, so these sensors deliberately carry no ``state_class`` (no
+cumulative statistics) to avoid competing with those statistics in the Energy
+water picker.
 """
 
 from __future__ import annotations
@@ -14,14 +17,12 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
-    SensorStateClass,
 )
 from homeassistant.const import EntityCategory, UnitOfVolume
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import EswConfigEntry
-from .const import TIMEZONE
 from .coordinator import COST_UNIT, EswDataUpdateCoordinator, MeterData
 from .entity import EswMeterEntity
 
@@ -34,45 +35,35 @@ class EswSensorDescription(SensorEntityDescription):
     available_fn: Callable[[MeterData], bool] = lambda _data: True
 
 
-def _latest_timestamp(data: MeterData) -> datetime | None:
-    """Localize the naive reading timestamp for the timestamp sensor."""
-    if data.latest is None:
-        return None
-    return data.latest.timestamp.replace(tzinfo=TIMEZONE)
-
-
 SENSORS: tuple[EswSensorDescription, ...] = (
     EswSensorDescription(
         key="daily_consumption",
         translation_key="daily_consumption",
         device_class=SensorDeviceClass.WATER,
         native_unit_of_measurement=UnitOfVolume.LITERS,
-        state_class=SensorStateClass.TOTAL,
-        value_fn=lambda d: d.latest.consumption_litres if d.latest else None,
-        available_fn=lambda d: d.latest is not None,
+        value_fn=lambda d: d.daily_consumption,
+        available_fn=lambda d: d.daily_consumption is not None,
     ),
     EswSensorDescription(
         key="daily_cost",
         translation_key="daily_cost",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=COST_UNIT,
-        state_class=SensorStateClass.TOTAL,
-        value_fn=lambda d: d.latest.cost if d.latest else None,
-        available_fn=lambda d: d.latest is not None and d.latest.cost is not None,
+        value_fn=lambda d: d.daily_cost,
+        available_fn=lambda d: d.daily_cost is not None,
     ),
     EswSensorDescription(
         key="last_reading",
         translation_key="last_reading",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=_latest_timestamp,
-        available_fn=lambda d: d.latest is not None,
+        value_fn=lambda d: d.last_reading,
+        available_fn=lambda d: d.last_reading is not None,
     ),
     EswSensorDescription(
         key="meter_last_read",
         translation_key="meter_last_read",
         device_class=SensorDeviceClass.WATER,
         native_unit_of_measurement=UnitOfVolume.CUBIC_METERS,
-        state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.meter.last_read,
         available_fn=lambda d: d.meter.last_read is not None,

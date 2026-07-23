@@ -23,8 +23,13 @@ TIMEZONE: Final = ZoneInfo("Europe/London")
 
 # First-run history backfill is done one hourly API call per day. Cap how far
 # back we reach and pace the calls so a fresh install is polite to the portal.
+# The deep backfill runs once in a background task, so this does not block setup.
 BACKFILL_MAX_DAYS: Final = 730
 BACKFILL_THROTTLE: Final = 0.3  # seconds between per-day hourly calls
+
+# Each regular poll fetches only this trailing window of hourly data: enough to
+# refresh the live sensors and append new statistics without a large fetch.
+RECENT_DAYS: Final = 3
 
 # Device registry metadata.
 MANUFACTURER: Final = "Essex & Suffolk Water"

@@ -10,18 +10,30 @@ import voluptuous as vol
 from eswater import ApiError, ESWaterClient, InvalidAuth, ServiceUnavailable
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
 from .const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+_EMAIL_SELECTOR = TextSelector(
+    TextSelectorConfig(type=TextSelectorType.EMAIL, autocomplete="username")
+)
+_PASSWORD_SELECTOR = TextSelector(
+    TextSelectorConfig(type=TextSelectorType.PASSWORD, autocomplete="current-password")
+)
+
 _USER_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_EMAIL): str,
-        vol.Required(CONF_PASSWORD): str,
+        vol.Required(CONF_EMAIL): _EMAIL_SELECTOR,
+        vol.Required(CONF_PASSWORD): _PASSWORD_SELECTOR,
     }
 )
-_REAUTH_SCHEMA = vol.Schema({vol.Required(CONF_PASSWORD): str})
+_REAUTH_SCHEMA = vol.Schema({vol.Required(CONF_PASSWORD): _PASSWORD_SELECTOR})
 
 
 class EswConfigFlow(ConfigFlow, domain=DOMAIN):

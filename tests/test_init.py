@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.essex_suffolk_water.const import DOMAIN
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -45,9 +45,11 @@ async def test_setup_creates_device_and_sensors(
     assert device is not None
     assert device.manufacturer == "Essex & Suffolk Water"
 
-    assert hass.states.get(CONSUMPTION).state == "150.0"
-    assert hass.states.get(COST).state == "0.9"
-    assert hass.states.get(LAST_READING) is not None
+    # Derived from the most recent day of hourly data: 1+..+24 = 300 L.
+    assert hass.states.get(CONSUMPTION).state == "300.0"
+    assert hass.states.get(COST).state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+    last_reading = hass.states.get(LAST_READING)
+    assert last_reading is not None and last_reading.state != STATE_UNAVAILABLE
     assert hass.states.get(METER_READ).state == "231.0"
 
 
