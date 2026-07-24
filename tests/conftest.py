@@ -16,6 +16,7 @@ from custom_components.essex_suffolk_water.const import (
 from eswater import Account, Meter, UsageReading
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+# Deliberately fake, non-real identifiers (do not use a real account/serial).
 ACCOUNT_ID = "1000000000"
 SERIAL = "TESTMETER01"
 # A fixed "now" (Europe/London) so backfill spans a small, deterministic range.

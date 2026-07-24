@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -29,7 +30,7 @@ from eswater import (
     NotAuthenticated,
     UsageReading,
 )
-from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder import get_instance  # type: ignore[attr-defined]
 from homeassistant.components.recorder.models import (
     StatisticData,
     StatisticMeanType,
@@ -103,6 +104,16 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         # Regular polls only append statistics once the one-time deep backfill
         # has finished, so the oldest-to-newest sum ordering is preserved.
         self._history_ready = False
+
+    @property
+    def history_ready(self) -> bool:
+        """Whether the one-time deep backfill has finished (for diagnostics)."""
+        return self._history_ready
+
+    @property
+    def backfill_scheduled(self) -> bool:
+        """Whether the background backfill task has been scheduled."""
+        return self._backfill_scheduled
 
     async def _async_update_data(self) -> dict[str, MeterData]:
         """Refresh live readings (and, once backfilled, append recent statistics)."""
@@ -208,10 +219,7 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
 
         usage_stats: list[StatisticData] = []
         cost_stats: list[StatisticData] = []
-        for reading in readings:
-            # API timestamps are naive Europe/London and mark the *end* of the
-            # hour; HA statistics want a tz-aware hour *start*.
-            start = reading.timestamp.replace(tzinfo=TIMEZONE) - timedelta(hours=1)
+        for reading, start in self._hour_starts(readings):
             start_epoch = start.timestamp()
 
             if usage_last_ts is None or start_epoch > usage_last_ts:
@@ -241,6 +249,27 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             async_add_external_statistics(
                 self.hass, self._metadata(meter, cost_id, "cost"), cost_stats
             )
+
+    @staticmethod
+    def _hour_starts(
+        readings: list[UsageReading],
+    ) -> Iterator[tuple[UsageReading, datetime]]:
+        """Yield each reading with its tz-aware hour *start*, DST-fold aware.
+
+        API timestamps are naive Europe/London and mark the *end* of the hour,
+        so the hour start is ``timestamp - 1h``. On the autumn fall-back night
+        the 01:00-02:00 wall-clock hour occurs twice and both readings carry the
+        same naive timestamp; attaching the zone naively would collapse them
+        onto one UTC hour (and one would be dropped as a duplicate, losing that
+        hour's usage). Disambiguating with ``fold`` maps the first occurrence to
+        the earlier UTC hour and the second to the later one, so both are kept.
+        """
+        seen: dict[datetime, int] = {}
+        for reading in readings:
+            naive_start = reading.timestamp - timedelta(hours=1)
+            fold = seen.get(naive_start, 0)
+            seen[naive_start] = fold + 1
+            yield reading, naive_start.replace(tzinfo=TIMEZONE, fold=fold)
 
     async def _resume_point(self, statistic_id: str) -> tuple[float, float | None]:
         """Return ``(running_sum, last_hour_epoch)`` for an existing statistic.
@@ -277,7 +306,9 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             rows = await self.client.get_usage(
                 meter.account_id,
                 meter.serial,
-                datetime(day.year, day.month, day.day),
+                # Naive local calendar day: the library serialises this as a
+                # bare "YYYY-MM-DDT00:00:00" the portal interprets as UK-local.
+                datetime(day.year, day.month, day.day),  # noqa: DTZ001
                 Granularity.HOURLY,
             )
             if rows:

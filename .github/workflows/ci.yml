@@ -24,5 +24,7 @@ jobs:
         run: ruff check .
       - name: Mypy
         run: mypy custom_components
+      - name: Bandit
+        run: bandit -c pyproject.toml -r custom_components
       - name: Pytest
-        run: pytest -v --cov-fail-under=90
+        run: pytest -v --cov-fail-under=95

@@ -26,6 +26,9 @@ from . import EswConfigEntry
 from .coordinator import COST_UNIT, EswDataUpdateCoordinator, MeterData
 from .entity import EswMeterEntity
 
+# Read-only cloud data served from the coordinator; no outbound per-entity calls.
+PARALLEL_UPDATES = 0
+
 
 @dataclass(frozen=True, kw_only=True)
 class EswSensorDescription(SensorEntityDescription):

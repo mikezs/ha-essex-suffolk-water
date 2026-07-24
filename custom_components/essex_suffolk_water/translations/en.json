@@ -7,6 +7,10 @@
         "data": {
           "email": "Email",
           "password": "Password"
+        },
+        "data_description": {
+          "email": "The email address you use to sign in to the Essex & Suffolk Water online account.",
+          "password": "The password for that online account. It is stored only in Home Assistant and used to sign in to the supplier portal."
         }
       },
       "reauth_confirm": {
@@ -14,6 +18,9 @@
         "description": "The stored credentials for {email} are no longer working. Enter the current password.",
         "data": {
           "password": "Password"
+        },
+        "data_description": {
+          "password": "The current password for {email}."
         }
       }
     },
