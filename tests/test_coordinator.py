@@ -13,7 +13,7 @@ from custom_components.essex_suffolk_water.const import (
     TIMEZONE,
 )
 from custom_components.essex_suffolk_water.coordinator import EswDataUpdateCoordinator
-from eswater import Account, InvalidAuth, Meter, ServiceUnavailable, UsageReading
+from eswater import Account, ApiError, InvalidAuth, Meter, ServiceUnavailable, UsageReading
 from homeassistant.const import UnitOfVolume
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -301,6 +301,35 @@ def test_start_day_resume_install_and_cap() -> None:
         serial=SERIAL, account_id=ACCOUNT_ID, installed_date=datetime(2000, 1, 1)
     )
     assert EswDataUpdateCoordinator._start_day(None, ancient, end_day) == floor
+
+
+async def test_api_error_on_one_day_skipped_backfill_completes(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_client: AsyncMock,
+    mock_stats: dict[str, MagicMock],
+) -> None:
+    """An ApiError on one day (e.g. None payload) is skipped; backfill still completes."""
+    call_count = 0
+
+    def _side_effect(account_id, serial, start_date, granularity):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            msg = "Unexpected usage payload: None"
+            raise ApiError(msg)
+        return make_day_readings(start_date)
+
+    mock_client.get_usage = AsyncMock(side_effect=_side_effect)
+    coordinator = _build_coordinator(hass, mock_config_entry, mock_client)
+    meter = mock_client.get_accounts.return_value[0].meters[0]
+
+    await coordinator._async_backfill_history([meter])
+
+    assert coordinator._history_ready is True
+    # Days 2 and 3 still produced statistics despite day 1 failing.
+    _usage_meta, usage_stats = _call_for(mock_stats["add_stats"], "_usage")
+    assert len(usage_stats) == 48  # 2 good days x 24 h
 
 
 async def test_cost_none_writes_usage_only(

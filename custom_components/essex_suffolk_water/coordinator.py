@@ -22,6 +22,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from eswater import (
+    ApiError,
     ESWaterClient,
     ESWaterError,
     Granularity,
@@ -303,18 +304,25 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         readings: list[UsageReading] = []
         day = start_day
         while day <= end_day:
-            rows = await self.client.get_usage(
-                meter.account_id,
-                meter.serial,
-                # Naive local calendar day: the library serialises this as a
-                # bare "YYYY-MM-DDT00:00:00" the portal interprets as UK-local.
-                datetime(day.year, day.month, day.day),  # noqa: DTZ001
-                Granularity.HOURLY,
-            )
-            if rows:
-                readings.extend(rows)
+            try:
+                rows = await self.client.get_usage(
+                    meter.account_id,
+                    meter.serial,
+                    # Naive local calendar day: the library serialises this as a
+                    # bare "YYYY-MM-DDT00:00:00" the portal interprets as UK-local.
+                    datetime(day.year, day.month, day.day),  # noqa: DTZ001
+                    Granularity.HOURLY,
+                )
+            except ApiError as err:
+                # The portal occasionally returns a None/malformed payload for
+                # dates with no meter data (e.g. before the meter was active).
+                # Skip the day rather than aborting the whole backfill.
+                _LOGGER.debug("Skipping %s on %s: %s", meter.serial, day, err)
             else:
-                _LOGGER.debug("No hourly data for %s on %s", meter.serial, day)
+                if rows:
+                    readings.extend(rows)
+                else:
+                    _LOGGER.debug("No hourly data for %s on %s", meter.serial, day)
             await asyncio.sleep(BACKFILL_THROTTLE)
             day += timedelta(days=1)
         readings.sort(key=lambda r: r.timestamp)
