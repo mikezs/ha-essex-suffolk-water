@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <path d="M128 40 C 176 86, 170 150, 128 150 C 86 150, 80 86, 128 40 Z" fill="#0072CE"/>
+  <path d="M104 132 C 94 132, 91 116, 98 108 C 100 123, 108 126, 111 126 Z" fill="#ffffff" fill-opacity="0.55"/>
+  <text x="128" y="212" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-weight="bold" font-size="56" fill="#0072CE">ESW</text>
+</svg>

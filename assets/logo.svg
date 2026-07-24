@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="180" viewBox="0 0 500 180">
+  <defs>
+    <linearGradient id="gd" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0072CE"/>
+      <stop offset="1" stop-color="#35B22E"/>
+    </linearGradient>
+    <linearGradient id="gt" gradientUnits="userSpaceOnUse" x1="118" y1="45" x2="470" y2="150">
+      <stop offset="0" stop-color="#0072CE"/>
+      <stop offset="1" stop-color="#35B22E"/>
+    </linearGradient>
+  </defs>
+  <path d="M52 40 C 100 86, 94 150, 52 150 C 10 150, 4 86, 52 40 Z" fill="url(#gd)"/>
+  <path d="M40 130 C 32 130, 30 116, 36 108 C 37 123, 45 126, 48 126 Z" fill="#ffffff" fill-opacity="0.5"/>
+  <text x="118" y="82" font-family="Helvetica, Arial, sans-serif" font-weight="bold" font-size="40" letter-spacing="-1" fill="url(#gt)">Essex &amp; Suffolk</text>
+  <text x="118" y="132" font-family="Helvetica, Arial, sans-serif" font-weight="bold" font-size="40" letter-spacing="-1" fill="url(#gt)">Water</text>
+</svg>

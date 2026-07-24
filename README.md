@@ -1,3 +1,5 @@
+<img src="custom_components/essex_suffolk_water/brand/logo.png" alt="Essex & Suffolk Water" width="360">
+
 # Essex & Suffolk Water for Home Assistant
 
 [![hacs][hacs-badge]][hacs]
