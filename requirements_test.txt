@@ -1,7 +1,7 @@
 # Test/dev dependencies for the integration.
 # pytest-homeassistant-custom-component pins a matching Home Assistant version.
 pytest-homeassistant-custom-component>=0.13.190
-ruff>=0.6
+ruff>=0.16.8
 mypy>=1.11
 bandit>=1.7
 
