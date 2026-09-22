@@ -1,0 +1,15 @@
+# Dependabot version updates. Security updates are enabled separately in
+# Settings → Code security. See:
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+version: 2
+updates:
+  # Keep workflow actions current (e.g. checkout/setup-python/artifact bumps).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # Dev/test tooling pinned in requirements_test.txt.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
