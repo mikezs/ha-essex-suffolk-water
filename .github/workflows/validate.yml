@@ -7,19 +7,24 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+# Least privilege: both jobs only read the repo (HACS reads manifest/hacs.json
+# via the token, which contents:read covers).
+permissions:
+  contents: read
+
 jobs:
   hassfest:
     name: hassfest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: home-assistant/actions/hassfest@master
 
   hacs:
     name: HACS
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: hacs/action@main
         with:
           category: integration
