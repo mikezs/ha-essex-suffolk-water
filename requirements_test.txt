@@ -2,7 +2,7 @@
 # pytest-homeassistant-custom-component pins a matching Home Assistant version.
 pytest-homeassistant-custom-component>=0.13.190
 ruff>=0.6
-mypy>=1.11
+mypy>=2.3.1
 bandit>=1.7
 
 # The library under test (https://github.com/mikezs/python-eswater).
