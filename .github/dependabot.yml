@@ -13,3 +13,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # 0.13.317+ requires Python 3.14 (current HA); this integration targets
+      # Python 3.13 / min HA 2025.2. Re-enable after a deliberate 3.14 migration.
+      - dependency-name: "pytest-homeassistant-custom-component"
