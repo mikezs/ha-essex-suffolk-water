@@ -6,4 +6,4 @@ mypy>=1.11
 bandit>=1.7
 
 # The library under test (https://github.com/mikezs/python-eswater).
-eswater>=0.1.1
+eswater>=0.1.2
