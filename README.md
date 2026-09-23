@@ -5,6 +5,8 @@
 [![hacs][hacs-badge]][hacs]
 [![validate][validate-badge]][validate-workflow]
 
+[![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.][my-badge]][my-link]
+
 A Home Assistant custom integration that ingests **smart water meter** usage
 from [Essex & Suffolk Water][esw] (part of Northumbrian Water Group) and feeds
 it into the **Energy dashboard**'s water section as long-term statistics —
@@ -36,7 +38,15 @@ ESW online-account portal API.
 
 ## Installation
 
-### HACS (custom repository)
+### HACS (one-click)
+
+[![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.][my-badge]][my-link]
+
+Click the badge above, then **Download**, and restart Home Assistant. (Works as a
+custom repository today; it also resolves directly once the integration is in the
+default HACS store.)
+
+### HACS (custom repository, manual)
 
 1. In HACS, open the ⋮ menu → **Custom repositories**.
 2. Add `https://github.com/mikezs/ha-essex-suffolk-water` with category
@@ -95,3 +105,5 @@ MIT — see [LICENSE](LICENSE).
 [hacs-badge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
 [validate-badge]: https://github.com/mikezs/ha-essex-suffolk-water/actions/workflows/validate.yml/badge.svg
 [validate-workflow]: https://github.com/mikezs/ha-essex-suffolk-water/actions/workflows/validate.yml
+[my-badge]: https://my.home-assistant.io/badges/hacs_repository.svg
+[my-link]: https://my.home-assistant.io/redirect/hacs_repository/?owner=mikezs&repository=ha-essex-suffolk-water&category=integration

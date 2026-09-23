@@ -28,8 +28,5 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # `brands` needs the icon in home-assistant/brands (or, on HA 2026.3+,
-          # the in-repo brand/ dir); ignore until that path is confirmed.
-          ignore: brands
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
