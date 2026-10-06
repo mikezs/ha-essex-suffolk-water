@@ -40,9 +40,10 @@ jobs:
         if: ${{ inputs.eswater_version != '' }}
         run: |
           v="${{ inputs.eswater_version }}"
-          sed -i -E "s/eswater==[0-9A-Za-z.\-]+/eswater==$v/" custom_components/essex_suffolk_water/manifest.json
+          sed -i -E "s/eswater==[^\"]*/eswater==$v/" custom_components/essex_suffolk_water/manifest.json
           sed -i -E "s/^eswater>=.*/eswater>=$v/" requirements_test.txt
           grep -q "eswater==$v" custom_components/essex_suffolk_water/manifest.json
+          grep -q "eswater>=$v" requirements_test.txt
 
       - name: Compute new version
         id: ver
@@ -61,7 +62,7 @@ jobs:
       - name: Apply version
         run: |
           new="${{ steps.ver.outputs.new }}"
-          sed -i -E "s/(\"version\": \")[^\"]*(\")/\1$new\2/" custom_components/essex_suffolk_water/manifest.json
+          sed -i -E "s/\"version\": \"[^\"]*\"/\"version\": \"$new\"/" custom_components/essex_suffolk_water/manifest.json
           grep -q "\"version\": \"$new\"" custom_components/essex_suffolk_water/manifest.json
           python3 -c "import json; json.load(open('custom_components/essex_suffolk_water/manifest.json'))"
 
