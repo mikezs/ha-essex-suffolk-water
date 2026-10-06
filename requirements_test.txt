@@ -4,7 +4,7 @@
 # 3.13 / min HA 2025.2, so cap below that until a deliberate 3.14 migration.
 pytest-homeassistant-custom-component>=0.13.190,<0.13.317
 ruff>=0.16.9
-mypy>=2.3.1
+mypy>=2.4.0
 bandit>=1.9.4
 
 # The library under test (https://github.com/mikezs/python-eswater).
