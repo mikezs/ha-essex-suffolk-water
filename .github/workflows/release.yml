@@ -1,23 +1,10 @@
 name: Release
 
-# One-click release: pick a bump (and optionally a new eswater version to pin),
-# and this updates manifest.json (+ requirements_test.txt), commits to main,
-# tags, and cuts the GitHub release that HACS serves. Pushes use RELEASE_TOKEN
-# (a fine-grained PAT owned by the repo admin) so they bypass the branch
-# ruleset's required checks.
-
+# Commit the manifest version and library pin, wait for CI, then push vX.Y.Z.
+# A tag-driven release avoids needing a personal token to write to main.
 on:
-  workflow_dispatch:
-    inputs:
-      bump:
-        description: Semantic version bump (the integration's own version)
-        type: choice
-        options: [patch, minor, major]
-        default: patch
-      eswater_version:
-        description: "Re-pin eswater to this version (leave blank to keep current)"
-        type: string
-        default: ""
+  push:
+    tags: ["v*"]
 
 permissions:
   contents: read
@@ -25,60 +12,36 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          token: ${{ secrets.RELEASE_TOKEN }}
-          fetch-depth: 0
-
-      - name: Configure git identity
+          python-version: "3.14"
+      - name: Verify tag matches manifest
         run: |
-          git config user.name "mikezs"
-          git config user.email "mikezs@users.noreply.github.com"
-
-      - name: Re-pin eswater (optional)
-        if: ${{ inputs.eswater_version != '' }}
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          manifest = json.loads(Path("custom_components/essex_suffolk_water/manifest.json").read_text())
+          assert os.environ["GITHUB_REF_NAME"] == f"v{manifest['version']}"
+          PY
+      - name: Test integration
         run: |
-          v="${{ inputs.eswater_version }}"
-          sed -i -E "s/eswater==[^\"]*/eswater==$v/" custom_components/essex_suffolk_water/manifest.json
-          sed -i -E "s/^eswater>=.*/eswater>=$v/" requirements_test.txt
-          grep -q "eswater==$v" custom_components/essex_suffolk_water/manifest.json
-          grep -q "eswater>=$v" requirements_test.txt
-
-      - name: Compute new version
-        id: ver
-        run: |
-          cur=$(python3 -c "import json; print(json.load(open('custom_components/essex_suffolk_water/manifest.json'))['version'])")
-          IFS=. read -r MA MI PA <<< "$cur"
-          case "${{ inputs.bump }}" in
-            major) MA=$((MA+1)); MI=0; PA=0 ;;
-            minor) MI=$((MI+1)); PA=0 ;;
-            patch) PA=$((PA+1)) ;;
-          esac
-          new="$MA.$MI.$PA"
-          echo "new=$new" >> "$GITHUB_OUTPUT"
-          echo "Bumping $cur -> $new"
-
-      - name: Apply version
-        run: |
-          new="${{ steps.ver.outputs.new }}"
-          sed -i -E "s/\"version\": \"[^\"]*\"/\"version\": \"$new\"/" custom_components/essex_suffolk_water/manifest.json
-          grep -q "\"version\": \"$new\"" custom_components/essex_suffolk_water/manifest.json
-          python3 -c "import json; json.load(open('custom_components/essex_suffolk_water/manifest.json'))"
-
-      - name: Commit, tag, push
-        run: |
-          new="${{ steps.ver.outputs.new }}"
-          git add -A
-          git commit -m "Release $new"
-          git tag -a "v$new" -m "$new"
-          git push origin HEAD:main
-          git push origin "v$new"
-
+          pip install -r requirements_test.txt
+          ruff check .
+          mypy custom_components
+          bandit -c pyproject.toml -r custom_components
+          pytest -v --cov-fail-under=95
+      - uses: home-assistant/actions/hassfest@master
+      - uses: hacs/action@main
+        with:
+          category: integration
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Create GitHub release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: >
-          gh release create "v${{ steps.ver.outputs.new }}"
-          --title "${{ steps.ver.outputs.new }}"
-          --generate-notes
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "${GITHUB_REF_NAME#v}" --generate-notes

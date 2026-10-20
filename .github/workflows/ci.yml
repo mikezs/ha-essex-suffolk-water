@@ -14,9 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # HA 2025.2+ (and the statistics APIs this integration uses) requires
-        # Python 3.13; pytest-homeassistant-custom-component pins current HA.
-        python-version: ["3.13"]
+        # Test both the Python 3.13 baseline and current HA on Python 3.14.
+        python-version: ["3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -30,5 +29,19 @@ jobs:
         run: mypy custom_components
       - name: Bandit
         run: bandit -c pyproject.toml -r custom_components
+      - name: Pytest
+        run: pytest -v --cov-fail-under=95
+
+  minimum-ha:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      # This older plugin pins HA 2025.11.0 and librt 0.2.1, so keep the
+      # modern mypy tooling in the main matrix rather than this environment.
+      - name: Install minimum HA test environment
+        run: pip install pytest-homeassistant-custom-component==0.13.294 'pycares<5' eswater==0.1.4
       - name: Pytest
         run: pytest -v --cov-fail-under=95

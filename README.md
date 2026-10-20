@@ -32,7 +32,7 @@ ESW online-account portal API.
 
 ## Requirements
 
-- Home Assistant 2025.2 or newer.
+- Home Assistant 2025.11 or newer (the recorder statistics metadata API is required).
 - An Essex & Suffolk Water online account (email + password) with a **smart
   meter**. Usage data lags roughly 1–2 days behind real time.
 
@@ -94,6 +94,17 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements_test.txt
 ruff check . && mypy custom_components && pytest -v
 ```
+
+Use Python 3.13 for the HA 2026.2 baseline or Python 3.14 for current HA. To develop both projects
+side-by-side, also run `pip install -e ../python-eswater --no-deps` in this
+environment. Each config entry owns a separate cookie session; credential checks
+use a short-lived session that is detached on success or failure. HA retains
+ownership of its connector; do not call `close()` on HA-created sessions.
+
+For a release, update `manifest.json`'s version and exact `eswater` requirement
+and the library version in `requirements_test.txt`/the minimum-HA CI job. Commit
+and wait for CI/Validate, then push the matching `vX.Y.Z` tag. The Release workflow
+rechecks the tagged code and publishes using GitHub's built-in token.
 
 ## License
 

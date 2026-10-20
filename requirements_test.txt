@@ -1,11 +1,11 @@
 # Test/dev dependencies for the integration.
 # pytest-homeassistant-custom-component pins a matching Home Assistant version.
-# 0.13.317+ requires Python 3.14 (current HA); this integration targets Python
-# 3.13 / min HA 2025.2, so cap below that until a deliberate 3.14 migration.
-pytest-homeassistant-custom-component>=0.13.190,<0.13.317
+# Preserve the Python 3.13 baseline and also test current HA on Python 3.14.
+pytest-homeassistant-custom-component>=0.13.190,<0.13.317; python_version < "3.14"
+pytest-homeassistant-custom-component>=0.13.317; python_version >= "3.14"
 ruff>=0.17.1
 mypy>=2.4.0
 bandit>=1.9.4
 
 # The library under test (https://github.com/mikezs/python-eswater).
-eswater>=0.1.3
+eswater==0.1.4

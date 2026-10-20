@@ -22,7 +22,6 @@ from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from eswater import (
-    ApiError,
     ESWaterClient,
     ESWaterError,
     Granularity,
@@ -44,7 +43,7 @@ from homeassistant.components.recorder.statistics import (
 from homeassistant.const import UnitOfVolume
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import VolumeConverter
@@ -84,7 +83,7 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
     config_entry: EswConfigEntry
 
     def __init__(self, hass: HomeAssistant, entry: EswConfigEntry) -> None:
-        """Initialise the coordinator with a client bound to the HA session."""
+        """Initialise the coordinator with a private portal cookie session."""
         super().__init__(
             hass,
             _LOGGER,
@@ -92,8 +91,12 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             update_interval=SCAN_INTERVAL,
             config_entry=entry,
         )
+        session = async_create_clientsession(hass)
+        # HA owns the shared connector, but this session's cookie jar is private.
+        # close() would try to close that connector; detach() releases only us.
+        entry.async_on_unload(session.detach)
         self.client = ESWaterClient(
-            async_get_clientsession(hass),
+            session,
             entry.data[CONF_EMAIL],
             entry.data[CONF_PASSWORD],
         )
@@ -141,6 +144,8 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
             raise ConfigEntryAuthFailed(str(err)) from err
         except ESWaterError as err:
             # ServiceUnavailable, ApiError (incl. malformed responses), etc.
+            # A failed automatic re-login may have cleared the client's auth.
+            self._authenticated = False
             raise UpdateFailed(str(err)) from err
 
         if not self._backfill_scheduled:
@@ -164,9 +169,9 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         cost: dict[date, float] = defaultdict(float)
         has_cost: set[date] = set()
         latest: datetime | None = None
-        for reading in readings:
-            ts = reading.timestamp.replace(tzinfo=TIMEZONE)
-            day = (ts - timedelta(hours=1)).date()  # hour-start day
+        for reading, start in self._hour_starts(readings):
+            ts = (start.astimezone(UTC) + timedelta(hours=1)).astimezone(TIMEZONE)
+            day = start.date()
             litres[day] += reading.consumption_litres
             if reading.cost is not None:
                 cost[day] += reading.cost
@@ -196,14 +201,15 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
                 async with self._stats_lock:
                     await self._insert_statistics(meter, readings)
         except ESWaterError as err:
+            self._authenticated = False
             _LOGGER.warning(
-                "Historical backfill did not complete (%s); recent statistics "
-                "will still be collected. Reload the integration to retry.",
+                "Historical backfill did not complete (%s); retrying on the next poll.",
                 err,
             )
-        finally:
-            # Let regular polls append recent statistics from here on, even if
-            # the deep backfill was partial — resume logic picks up the rest.
+            # Appending newer hours now would advance the resume point past
+            # missing history, making that gap permanent on subsequent reloads.
+            self._backfill_scheduled = False
+        else:
             self._history_ready = True
 
     async def _insert_statistics(
@@ -268,9 +274,23 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         seen: dict[datetime, int] = {}
         for reading in readings:
             naive_start = reading.timestamp - timedelta(hours=1)
-            fold = seen.get(naive_start, 0)
-            seen[naive_start] = fold + 1
-            yield reading, naive_start.replace(tzinfo=TIMEZONE, fold=fold)
+            occurrence = seen.get(naive_start, 0)
+            seen[naive_start] = occurrence + 1
+            first = naive_start.replace(tzinfo=TIMEZONE, fold=0)
+            second = naive_start.replace(tzinfo=TIMEZONE, fold=1)
+            first_offset = first.utcoffset()
+            second_offset = second.utcoffset()
+            # Only the autumn clock change permits two distinct hour starts.
+            # Ordinary duplicates must neither inflate sums nor set fold=2.
+            if occurrence == 0:
+                yield reading, first
+            elif (
+                occurrence == 1
+                and first_offset is not None
+                and second_offset is not None
+                and first_offset > second_offset
+            ):
+                yield reading, second
 
     async def _resume_point(self, statistic_id: str) -> tuple[float, float | None]:
         """Return ``(running_sum, last_hour_epoch)`` for an existing statistic.
@@ -304,25 +324,17 @@ class EswDataUpdateCoordinator(DataUpdateCoordinator[dict[str, MeterData]]):
         readings: list[UsageReading] = []
         day = start_day
         while day <= end_day:
-            try:
-                rows = await self.client.get_usage(
-                    meter.account_id,
-                    meter.serial,
-                    # Naive local calendar day: the library serialises this as a
-                    # bare "YYYY-MM-DDT00:00:00" the portal interprets as UK-local.
-                    datetime(day.year, day.month, day.day),  # noqa: DTZ001
-                    Granularity.HOURLY,
-                )
-            except ApiError as err:
-                # The portal occasionally returns a None/malformed payload for
-                # dates with no meter data (e.g. before the meter was active).
-                # Skip the day rather than aborting the whole backfill.
-                _LOGGER.debug("Skipping %s on %s: %s", meter.serial, day, err)
+            rows = await self.client.get_usage(
+                meter.account_id,
+                meter.serial,
+                # Naive local calendar day, interpreted by the portal as UK-local.
+                datetime(day.year, day.month, day.day),  # noqa: DTZ001
+                Granularity.HOURLY,
+            )
+            if rows:
+                readings.extend(rows)
             else:
-                if rows:
-                    readings.extend(rows)
-                else:
-                    _LOGGER.debug("No hourly data for %s on %s", meter.serial, day)
+                _LOGGER.debug("No hourly data for %s on %s", meter.serial, day)
             await asyncio.sleep(BACKFILL_THROTTLE)
             day += timedelta(days=1)
         readings.sort(key=lambda r: r.timestamp)

@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from custom_components.essex_suffolk_water.const import (
     CONF_EMAIL,
     CONF_PASSWORD,
@@ -15,7 +16,9 @@ from eswater import InvalidAuth, ServiceUnavailable
 from homeassistant.config_entries import SOURCE_REAUTH, SOURCE_USER
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from yarl import URL
 
 USER_INPUT = {CONF_EMAIL: "user@example.com", CONF_PASSWORD: "secret"}
 
@@ -143,3 +146,35 @@ async def test_reauth_flow_success(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert entry.data[CONF_PASSWORD] == "new-password"
+
+
+@pytest.mark.parametrize("error", [None, InvalidAuth("bad"), ServiceUnavailable("down")])
+async def test_credential_check_closes_private_session(
+    hass: HomeAssistant, error: Exception | None
+) -> None:
+    """Success and failure both close a fresh session without touching HA cookies."""
+    shared = async_get_clientsession(hass)
+    sessions = []
+
+    def make_client(session, *_args):
+        sessions.append(session)
+        session.cookie_jar.update_cookies(
+            {"portal_session": "login"}, URL("https://www.eswater.co.uk")
+        )
+        return AsyncMock(authenticate=AsyncMock(side_effect=error))
+
+    with (
+        patch(
+            "custom_components.essex_suffolk_water.config_flow.ESWaterClient",
+            side_effect=make_client,
+        ),
+        patch("custom_components.essex_suffolk_water.async_setup_entry", return_value=True),
+    ):
+        await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_USER}, data=USER_INPUT
+        )
+    assert len(sessions) == 1
+    assert sessions[0] is not shared
+    assert sessions[0].closed
+    assert not shared.closed
+    assert not shared.cookie_jar.filter_cookies(URL("https://www.eswater.co.uk"))

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from eswater import ApiError, ESWaterClient, InvalidAuth, ServiceUnavailable
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
@@ -54,7 +54,9 @@ class EswConfigFlow(ConfigFlow, domain=DOMAIN):
             if not errors:
                 return self.async_create_entry(title=email, data=user_input)
         return self.async_show_form(
-            step_id="user", data_schema=_USER_SCHEMA, errors=errors
+            # HA 2026.10 annotates probatio schemas but still accepts voluptuous;
+            # retain voluptuous for compatibility with the minimum HA version.
+            step_id="user", data_schema=cast(Any, _USER_SCHEMA), errors=errors
         )
 
     async def async_step_reauth(
@@ -79,15 +81,16 @@ class EswConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=_REAUTH_SCHEMA,
+            data_schema=cast(Any, _REAUTH_SCHEMA),
             description_placeholders={"email": email},
             errors=errors,
         )
 
     async def _try_auth(self, email: str, password: str) -> dict[str, str]:
         """Validate credentials, mapping library errors to form error keys."""
-        client = ESWaterClient(async_get_clientsession(self.hass), email, password)
+        session = async_create_clientsession(self.hass, auto_cleanup=False)
         try:
+            client = ESWaterClient(session, email, password)
             await client.authenticate()
         except InvalidAuth:
             return {"base": "invalid_auth"}
@@ -96,4 +99,7 @@ class EswConfigFlow(ConfigFlow, domain=DOMAIN):
         except Exception:
             _LOGGER.exception("Unexpected error validating ESW credentials")
             return {"base": "unknown"}
+        finally:
+            # Release the private session without closing HA's shared connector.
+            session.detach()
         return {}

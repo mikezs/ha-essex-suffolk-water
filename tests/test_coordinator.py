@@ -166,6 +166,7 @@ async def test_service_unavailable_raises_update_failed(
 
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
+    assert coordinator._authenticated is False
 
 
 async def test_invalid_auth_raises_reauth(
@@ -260,14 +261,14 @@ async def test_multi_meter_multi_account(
     assert f"{DOMAIN}:acc2_ccc333_usage" in ids
 
 
-async def test_backfill_failure_still_readies_history(
+async def test_backfill_failure_retries_without_advancing_history(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_client: AsyncMock,
     mock_stats: dict[str, MagicMock],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A failed deep backfill logs a warning but still enables incremental stats."""
+    """A failed backfill must not advance the resume point past missing history."""
     mock_client.get_usage = AsyncMock(side_effect=ServiceUnavailable("portal down"))
     coordinator = _build_coordinator(hass, mock_config_entry, mock_client)
     meter = mock_client.get_accounts.return_value[0].meters[0]
@@ -275,8 +276,8 @@ async def test_backfill_failure_still_readies_history(
     with caplog.at_level(logging.WARNING):
         await coordinator._async_backfill_history([meter])
 
-    # Recovery path: history is marked ready so regular polls resume appending.
-    assert coordinator._history_ready is True
+    assert coordinator._history_ready is False
+    assert coordinator._backfill_scheduled is False
     assert "did not complete" in caplog.text
     mock_stats["add_stats"].assert_not_called()
 
@@ -303,13 +304,13 @@ def test_start_day_resume_install_and_cap() -> None:
     assert EswDataUpdateCoordinator._start_day(None, ancient, end_day) == floor
 
 
-async def test_api_error_on_one_day_skipped_backfill_completes(
+async def test_api_error_does_not_silently_skip_history(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_client: AsyncMock,
     mock_stats: dict[str, MagicMock],
 ) -> None:
-    """An ApiError on one day (e.g. None payload) is skipped; backfill still completes."""
+    """Malformed data cannot be mistaken for an empty day and permanently skipped."""
     call_count = 0
 
     def _side_effect(account_id, serial, start_date, granularity):
@@ -326,10 +327,14 @@ async def test_api_error_on_one_day_skipped_backfill_completes(
 
     await coordinator._async_backfill_history([meter])
 
-    assert coordinator._history_ready is True
-    # Days 2 and 3 still produced statistics despite day 1 failing.
+    assert coordinator._history_ready is False
+    mock_stats["add_stats"].assert_not_called()
+
+    # The next successful fetch can still import the entire missing range.
+    await coordinator._async_backfill_history([meter])
+    assert coordinator.history_ready
     _usage_meta, usage_stats = _call_for(mock_stats["add_stats"], "_usage")
-    assert len(usage_stats) == 48  # 2 good days x 24 h
+    assert len(usage_stats) == 72
 
 
 async def test_cost_none_writes_usage_only(
@@ -357,3 +362,27 @@ async def test_cost_none_writes_usage_only(
     ]
     assert any(i.endswith("_usage") for i in ids)
     assert not any(i.endswith("_cost") for i in ids)
+
+
+@pytest.mark.parametrize("day", [datetime(2026, 7, 18, 2), datetime(2025, 10, 26, 2)])
+def test_duplicate_hours_are_bounded(day: datetime) -> None:
+    """Duplicates cannot overcount ordinary hours or crash with an invalid fold."""
+    rows = [UsageReading(day, 10.0)] * 3
+    starts = list(EswDataUpdateCoordinator._hour_starts(rows))
+    expected = 2 if day.month == 10 else 1
+    assert len(starts) == expected
+    assert len({start.timestamp() for _, start in starts}) == expected
+
+
+async def test_duplicate_hours_do_not_inflate_live_sensor(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_client: AsyncMock,
+    meter: Meter,
+) -> None:
+    """The live totals and imported statistics apply the same deduplication."""
+    coordinator = _build_coordinator(hass, mock_config_entry, mock_client)
+    row = UsageReading(datetime(2026, 7, 18, 2), 10.0, 0.1)
+    summary = coordinator._summarise(meter, [row, row, row])
+    assert summary.daily_consumption == 10.0
+    assert summary.daily_cost == 0.1
