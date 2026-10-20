@@ -101,10 +101,46 @@ environment. Each config entry owns a separate cookie session; credential checks
 use a short-lived session that is detached on success or failure. HA retains
 ownership of its connector; do not call `close()` on HA-created sessions.
 
-For a release, update `manifest.json`'s version and exact `eswater` requirement
-and the library version in `requirements_test.txt`/the minimum-HA CI job. Commit
-and wait for CI/Validate, then push the matching `vX.Y.Z` tag. The Release workflow
-rechecks the tagged code and publishes using GitHub's built-in token.
+## Releasing
+
+Open **Actions → Release → Run workflow** on **main**. Choose a `patch`, `minor`
+or `major` bump. Optionally set **eswater_version** to a stable version already
+published on PyPI; leave it blank to keep the current library pin. Leave
+**dry_run** checked to validate the token, proposed changes, tests, hassfest and
+HACS without changing GitHub or publishing. Uncheck it for a real release.
+
+For coordinated releases, publish the Python library first, then run this
+workflow with its new version. Both `manifest.json` and `requirements_test.txt`
+are re-pinned; minimum-HA CI reads the manifest pin automatically.
+
+The manual workflow validates the proposed files, commits the version bump,
+waits for **CI and Validate** on that exact commit, then pushes its version tag.
+The tag-triggered run of the same workflow rechecks the code and publishes the
+GitHub release HACS serves. Manual version commits and matching `vX.Y.Z` tags
+still work.
+
+### Release token
+
+Create a **fine-grained personal access token** owned by `mikezs`, restricted to
+`ha-essex-suffolk-water` and `python-eswater`, with **Contents: read and write**
+and the automatically included Metadata read permission. Add it as repository
+Actions secret **`RELEASE_TOKEN`** in both repositories (Settings → Secrets and
+variables → Actions). Renew the secret before token expiry; never put its value
+in workflow inputs or source code. Workflows write permission is not required:
+version/library-pin changes do not modify workflow files.
+
+The owner's existing admin-role bypass in the `main-ci` ruleset permits the
+version commit to be pushed before its remote checks exist. Local runner tests
+pass before that push; remote CI/Validate must pass before tagging. A failed or
+timed-out check leaves a version commit on main but no tag/release. Inspect/fix
+it before preparing another release, or tag that exact commit manually once
+its checks pass.
+
+The manual checkout and git pushes use `RELEASE_TOKEN` so their events trigger
+CI and the tag publisher. The built-in `GITHUB_TOKEN` is used for read-only CI
+monitoring/HACS validation and, in the tag publisher only, creating the GitHub
+release. The dry run verifies token authentication and `git push --dry-run`;
+actual protected-branch writes also require the owner's ruleset bypass.
 
 ## License
 
