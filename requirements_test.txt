@@ -3,7 +3,7 @@
 # Preserve the Python 3.13 baseline and also test current HA on Python 3.14.
 pytest-homeassistant-custom-component>=0.13.190,<0.13.317; python_version < "3.14"
 pytest-homeassistant-custom-component>=0.13.317; python_version >= "3.14"
-ruff>=0.17.1
+ruff>=0.17.2
 mypy>=2.4.0
 bandit>=1.9.4
 
