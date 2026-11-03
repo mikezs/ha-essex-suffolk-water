@@ -4,7 +4,7 @@
 pytest-homeassistant-custom-component>=0.13.190,<0.13.317; python_version < "3.14"
 pytest-homeassistant-custom-component>=0.13.317; python_version >= "3.14"
 ruff>=0.17.2
-mypy>=2.4.0
+mypy>=2.4.1
 bandit>=1.9.4
 
 # The library under test (https://github.com/mikezs/python-eswater).
